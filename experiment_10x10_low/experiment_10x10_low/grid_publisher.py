@@ -1,110 +1,93 @@
-#!/usr/bin/env python3
-import copy
-
-import rospy
-from nav_msgs.msg import OccupancyGrid, MapMetaData
+import rclpy
+from rclpy.node import Node
+from nav_msgs.msg import OccupancyGrid
 from geometry_msgs.msg import Pose
 
 
-class GridPublisher10x10Low:
-    """10x10 low-disturbance experiment.
-
-    Low disturbance definition for this run:
-    - small changes only
-    - every 5 seconds
-
-    Dynamic pattern:
-    A horizontal wall splits the map, with two nearby crossing gaps.
-    Every 5 seconds we close one gap and open the other, which changes only 1-2 cells.
-    """
-
+class GridPublisher(Node):
     def __init__(self):
-        self.pub = rospy.Publisher("/experiment_grid", OccupancyGrid, queue_size=1, latch=True)
-        self.width = 10
-        self.height = 10
+        super().__init__('grid_publisher')
+        self.publisher_ = self.create_publisher(OccupancyGrid, '/map', 10)
+        self.marker_publisher_ = self.create_publisher(MarkerArray, '/start_goal_markers', 10)
+        self.timer = self.create_timer(1.0, self.publish_grid)
+
+        self.declare_parameter('grid_size', 10)
+        self.grid_size = int(self.get_parameter('grid_size').value)
+
+        self.width = self.grid_size
+        self.height = self.grid_size
         self.resolution = 1.0
-        self.publish_rate_hz = rospy.get_param("~publish_rate_hz", 1.0)
-        self.change_period_sec = rospy.get_param("~change_period_sec", 5.0)
 
-        self.base_grid = self._build_base_grid()
-        self.grid = copy.deepcopy(self.base_grid)
-        self.last_change_time = rospy.Time.now()
-        self.stage = 0
-        self._apply_stage()
+        self.declare_parameter('start_x', 1)
+        self.declare_parameter('start_y', 1)
+        self.declare_parameter('goal_x', self.width - 2)
+        self.declare_parameter('goal_y', self.height - 2)
 
-        rospy.loginfo("grid_publisher.py running for 10x10 LOW disturbance")
-        rospy.loginfo("LOW = small changes, every 5 sec")
+        self.start_x = int(self.get_parameter('start_x').value)
+        self.start_y = int(self.get_parameter('start_y').value)
+        self.goal_x = int(self.get_parameter('goal_x').value)
+        self.goal_y = int(self.get_parameter('goal_y').value)
 
-    def _build_base_grid(self):
-        grid = [[0 for _ in range(self.width)] for _ in range(self.height)]
+        self.get_logger().info(
+            f'Grid size: {self.width}x{self.height}, start=({self.start_x},{self.start_y}), goal=({self.goal_x},{self.goal_y})'
+        )
 
-        # Static wall skeleton on row 5 from col 1..8.
-        # The disturbance controller below will decide whether col 4 or col 6 is the active gap.
-        for c in range(1, 9):
-            grid[5][c] = 100
+        self.layout_toggle = False
+        self.publish_count = 0
 
-        # A couple of fixed obstacles so the path is not completely trivial.
-        grid[2][2] = 100
-        grid[2][3] = 100
-        grid[7][7] = 100
-        grid[7][8] = 100
-        return grid
+        self.wall_x = self.width // 2
+        self.gap_top_y = self.height // 4
+        self.gap_bottom_y = (3 * self.height) // 4
 
-    def _apply_stage(self):
-        self.grid = copy.deepcopy(self.base_grid)
+    def make_layout_with_gap(self, gap_y):
+        data = [0] * (self.width * self.height)
 
-        # stage 0: left gap open, right gap closed
-        # stage 1: left gap closed, right gap open
-        # stage 2: left gap open, right gap closed
-        # stage 3: both gaps open (recovery / neutral)
-        if self.stage == 0:
-            self.grid[5][4] = 0
-            self.grid[5][6] = 100
-        elif self.stage == 1:
-            self.grid[5][4] = 100
-            self.grid[5][6] = 0
-        elif self.stage == 2:
-            self.grid[5][4] = 0
-            self.grid[5][6] = 100
-        elif self.stage == 3:
-            self.grid[5][4] = 0
-            self.grid[5][6] = 0
+        for y in range(self.height):
+            if y != gap_y:
+                index = y * self.width + self.wall_x
+                data[index] = 100
 
-        rospy.loginfo(f"[10x10_low] map stage={self.stage}")
+        return data
 
-    def _build_msg(self):
+    def make_layout_1(self):
+        return self.make_layout_with_gap(self.gap_bottom_y)
+
+    def make_layout_2(self):
+        return self.make_layout_with_gap(self.gap_top_y)
+
+    def publish_grid(self):
         msg = OccupancyGrid()
-        msg.header.stamp = rospy.Time.now()
-        msg.header.frame_id = "map"
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = 'map'
 
-        info = MapMetaData()
-        info.map_load_time = rospy.Time.now()
-        info.resolution = self.resolution
-        info.width = self.width
-        info.height = self.height
-        info.origin = Pose()
-        msg.info = info
+        msg.info.resolution = self.resolution
+        msg.info.width = self.width
+        msg.info.height = self.height
 
-        flat = []
-        for row in self.grid:
-            flat.extend(row)
-        msg.data = flat
-        return msg
+        origin = Pose()
+        origin.position.x = 0.0
+        origin.position.y = 0.0
+        origin.position.z = 0.0
+        origin.orientation.w = 1.0
+        msg.info.origin = origin
 
-    def spin(self):
-        rate = rospy.Rate(self.publish_rate_hz)
-        while not rospy.is_shutdown():
-            now = rospy.Time.now()
-            if (now - self.last_change_time).to_sec() >= self.change_period_sec:
-                self.stage = (self.stage + 1) % 4
-                self._apply_stage()
-                self.last_change_time = now
+        self.publish_count += 1
+        if self.publish_count % 5 == 0:
+            self.layout_toggle = not self.layout_toggle
 
-            self.pub.publish(self._build_msg())
-            rate.sleep()
+        if self.layout_toggle:
+            msg.data = self.make_layout_2()
+            self.get_logger().info(f'Published {self.width}x{self.height} layout 2')
+        else:
+            msg.data = self.make_layout_1()
+            self.get_logger().info(f'Published {self.width}x{self.height} layout 1')
+
+        self.publisher_.publish(msg)
 
 
-if __name__ == "__main__":
-    rospy.init_node("grid_publisher_10x10_low")
-    node = GridPublisher10x10Low()
-    node.spin()
+def main(args=None):
+    rclpy.init(args=args)
+    node = GridPublisher()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
