@@ -14,6 +14,7 @@ class AStarPlanner:
         self.grid: Optional[Grid] = None
         self.start: Optional[Cell] = None
         self.goal: Optional[Cell] = None
+        self.last_result = None
 
     def initialize(self, grid: Grid, start: Cell, goal: Cell) -> None:
         self.grid = [row[:] for row in grid]
@@ -22,6 +23,11 @@ class AStarPlanner:
 
     def update_grid(self, new_grid: Grid, changed_cells: List[Cell]) -> None:
         self.grid = [row[:] for row in new_grid]
+
+    def plan(self, grid: Grid, start: Cell, goal: Cell):
+        self.initialize(grid, start, goal)
+        self.last_result = self.replan()
+        return self.last_result["path"]
 
     def replan(self) -> Dict:
         if self.grid is None or self.start is None or self.goal is None:
@@ -43,7 +49,8 @@ class AStarPlanner:
             return [], 0
 
         open_heap = []
-        heapq.heappush(open_heap, (self._heuristic(start, goal), 0, start))
+        heapq.heappush(open_heap, (self._heuristic(start, goal), 0.0, start))
+
         g: Dict[Cell, float] = {start: 0.0}
         parent: Dict[Cell, Cell] = {}
         closed = set()
@@ -51,8 +58,10 @@ class AStarPlanner:
 
         while open_heap:
             f, current_g, current = heapq.heappop(open_heap)
+
             if current in closed:
                 continue
+
             closed.add(current)
             expanded += 1
 
@@ -60,7 +69,8 @@ class AStarPlanner:
                 return self._reconstruct_path(parent, goal), expanded
 
             for nxt in self._neighbors(grid, current):
-                tentative_g = current_g + 1.0
+                tentative_g = g[current] + 1.0
+
                 if tentative_g < g.get(nxt, float("inf")):
                     g[nxt] = tentative_g
                     parent[nxt] = current
@@ -74,6 +84,7 @@ class AStarPlanner:
     def _neighbors(self, grid: Grid, cell: Cell) -> List[Cell]:
         r, c = cell
         directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+
         if self.allow_diagonal:
             directions += [(-1, -1), (-1, 1), (1, -1), (1, 1)]
 
@@ -87,6 +98,7 @@ class AStarPlanner:
     def _heuristic(self, a: Cell, b: Cell) -> float:
         ar, ac = a
         br, bc = b
+
         if self.allow_diagonal:
             return max(abs(ar - br), abs(ac - bc))
         return abs(ar - br) + abs(ac - bc)
@@ -98,8 +110,10 @@ class AStarPlanner:
     def _reconstruct_path(self, parent: Dict[Cell, Cell], goal: Cell) -> List[Cell]:
         path = [goal]
         current = goal
+
         while current in parent:
             current = parent[current]
             path.append(current)
+
         path.reverse()
         return path
