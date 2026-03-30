@@ -4,14 +4,14 @@ from nav_msgs.msg import OccupancyGrid
 from geometry_msgs.msg import Pose
 
 
-class GridPublisher50(Node):
+class GridPublisher30(Node):
     def __init__(self):
-        super().__init__('grid_publisher_50')
+        super().__init__('grid_publisher_30')
         self.publisher_ = self.create_publisher(OccupancyGrid, '/map', 10)
         self.timer = self.create_timer(1.0, self.publish_grid)
 
-        self.width = 50
-        self.height = 50
+        self.width = 30
+        self.height = 30
         self.resolution = 1.0
 
         self.layout_toggle = False
@@ -32,9 +32,11 @@ class GridPublisher50(Node):
         return data
 
     def make_layout_1(self):
+        # Low disturbance layout 1: lower opening
         return self.make_layout_with_gap(self.gap_bottom_y)
 
     def make_layout_2(self):
+        # Low disturbance layout 2: upper opening
         return self.make_layout_with_gap(self.gap_top_y)
 
     def publish_grid(self):
@@ -59,17 +61,17 @@ class GridPublisher50(Node):
 
         if self.layout_toggle:
             msg.data = self.make_layout_2()
-            self.get_logger().info('Published 50x50 layout 2')
+            self.get_logger().info('Published 30x30 low layout 2')
         else:
             msg.data = self.make_layout_1()
-            self.get_logger().info('Published 50x50 layout 1')
+            self.get_logger().info('Published 30x30 low layout 1')
 
         self.publisher_.publish(msg)
 
 
 def main(args=None):
     rclpy.init(args=args)
-    node = GridPublisher50()
+    node = GridPublisher30()
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()

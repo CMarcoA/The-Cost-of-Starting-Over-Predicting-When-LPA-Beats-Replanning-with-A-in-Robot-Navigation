@@ -1,119 +1,53 @@
 import heapq
-import time
-from typing import Dict, List, Optional, Tuple
-
-Grid = List[List[int]]
-Cell = Tuple[int, int]
 
 
 class AStarPlanner:
-    """Restart planner: recomputes from scratch on every map update."""
+    def heuristic(self, a, b):
+        return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
-    def __init__(self, allow_diagonal: bool = False):
-        self.allow_diagonal = allow_diagonal
-        self.grid: Optional[Grid] = None
-        self.start: Optional[Cell] = None
-        self.goal: Optional[Cell] = None
-        self.last_result = None
+    def get_neighbors(self, node, width, height, grid):
+        x, y = node
+        neighbors = []
 
-    def initialize(self, grid: Grid, start: Cell, goal: Cell) -> None:
-        self.grid = [row[:] for row in grid]
-        self.start = start
-        self.goal = goal
+        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < width and 0 <= ny < height:
+                if grid[ny][nx] == 0:
+                    neighbors.append((nx, ny))
 
-    def update_grid(self, new_grid: Grid, changed_cells: List[Cell]) -> None:
-        self.grid = [row[:] for row in new_grid]
+        return neighbors
 
-    def plan(self, grid: Grid, start: Cell, goal: Cell):
-        self.initialize(grid, start, goal)
-        self.last_result = self.replan()
-        return self.last_result["path"]
-
-    def replan(self) -> Dict:
-        if self.grid is None or self.start is None or self.goal is None:
-            raise ValueError("Planner must be initialized before replanning.")
-
-        t0 = time.perf_counter_ns()
-        path, expanded = self._astar(self.grid, self.start, self.goal)
-        elapsed_us = (time.perf_counter_ns() - t0) / 1000.0
-
-        return {
-            "path": path,
-            "path_length": max(0, len(path) - 1) if path else float("inf"),
-            "planning_time_us": elapsed_us,
-            "expanded": expanded,
-        }
-
-    def _astar(self, grid: Grid, start: Cell, goal: Cell):
-        if not self._is_free(grid, start) or not self._is_free(grid, goal):
-            return [], 0
-
-        open_heap = []
-        heapq.heappush(open_heap, (self._heuristic(start, goal), 0.0, start))
-
-        g: Dict[Cell, float] = {start: 0.0}
-        parent: Dict[Cell, Cell] = {}
-        closed = set()
-        expanded = 0
-
-        while open_heap:
-            f, current_g, current = heapq.heappop(open_heap)
-
-            if current in closed:
-                continue
-
-            closed.add(current)
-            expanded += 1
-
-            if current == goal:
-                return self._reconstruct_path(parent, goal), expanded
-
-            for nxt in self._neighbors(grid, current):
-                tentative_g = g[current] + 1.0
-
-                if tentative_g < g.get(nxt, float("inf")):
-                    g[nxt] = tentative_g
-                    parent[nxt] = current
-                    heapq.heappush(
-                        open_heap,
-                        (tentative_g + self._heuristic(nxt, goal), tentative_g, nxt),
-                    )
-
-        return [], expanded
-
-    def _neighbors(self, grid: Grid, cell: Cell) -> List[Cell]:
-        r, c = cell
-        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
-
-        if self.allow_diagonal:
-            directions += [(-1, -1), (-1, 1), (1, -1), (1, 1)]
-
-        out = []
-        for dr, dc in directions:
-            nr, nc = r + dr, c + dc
-            if 0 <= nr < len(grid) and 0 <= nc < len(grid[0]) and grid[nr][nc] == 0:
-                out.append((nr, nc))
-        return out
-
-    def _heuristic(self, a: Cell, b: Cell) -> float:
-        ar, ac = a
-        br, bc = b
-
-        if self.allow_diagonal:
-            return max(abs(ar - br), abs(ac - bc))
-        return abs(ar - br) + abs(ac - bc)
-
-    def _is_free(self, grid: Grid, cell: Cell) -> bool:
-        r, c = cell
-        return 0 <= r < len(grid) and 0 <= c < len(grid[0]) and grid[r][c] == 0
-
-    def _reconstruct_path(self, parent: Dict[Cell, Cell], goal: Cell) -> List[Cell]:
-        path = [goal]
-        current = goal
-
-        while current in parent:
-            current = parent[current]
+    def reconstruct_path(self, came_from, current):
+        path = [current]
+        while current in came_from:
+            current = came_from[current]
             path.append(current)
-
         path.reverse()
         return path
+
+    def plan(self, grid, start, goal):
+        height = len(grid)
+        width = len(grid[0])
+
+        open_set = []
+        heapq.heappush(open_set, (0, start))
+
+        came_from = {}
+        g_score = {start: 0}
+
+        while open_set:
+            _, current = heapq.heappop(open_set)
+
+            if current == goal:
+                return self.reconstruct_path(came_from, current)
+
+            for neighbor in self.get_neighbors(current, width, height, grid):
+                tentative_g = g_score[current] + 1
+
+                if neighbor not in g_score or tentative_g < g_score[neighbor]:
+                    came_from[neighbor] = current
+                    g_score[neighbor] = tentative_g
+                    f_score = tentative_g + self.heuristic(neighbor, goal)
+                    heapq.heappush(open_set, (f_score, neighbor))
+
+        return []

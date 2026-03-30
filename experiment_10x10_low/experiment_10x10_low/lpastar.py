@@ -1,201 +1,214 @@
 import heapq
-import math
-import time
-from typing import Dict, List, Optional, Tuple
-
-Grid = List[List[int]]
-Cell = Tuple[int, int]
+from collections import defaultdict
+from itertools import count
+from math import inf
 
 
 class LPAStarPlanner:
-    """Repair planner: reuses previous search state after grid changes.
+    def __init__(self):
+        self.grid = None
+        self.width = 0
+        self.height = 0
+        self.start = None
+        self.goal = None
 
-    This is a practical grid-based LPA* for fixed start/goal experiments.
-    """
+        self.g = defaultdict(lambda: inf)
+        self.rhs = defaultdict(lambda: inf)
 
-    def __init__(self, allow_diagonal: bool = False):
-        self.allow_diagonal = allow_diagonal
-        self.grid: Optional[Grid] = None
-        self.start: Optional[Cell] = None
-        self.goal: Optional[Cell] = None
-        self.g: Dict[Cell, float] = {}
-        self.rhs: Dict[Cell, float] = {}
-        self.open_heap: List[Tuple[float, float, Cell]] = []
-        self.open_best_key: Dict[Cell, Tuple[float, float]] = {}
-        self.expanded_last = 0
+        self.open_heap = []
+        self.open_entries = {}
+        self.counter = count()
 
-    def initialize(self, grid: Grid, start: Cell, goal: Cell) -> None:
+    def heuristic(self, a, b):
+        return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+    def adjacent_cells(self, node):
+        x, y = node
+        neighbors = []
+
+        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < self.width and 0 <= ny < self.height:
+                neighbors.append((nx, ny))
+
+        return neighbors
+
+    def is_free(self, node):
+        x, y = node
+        return 0 <= x < self.width and 0 <= y < self.height and self.grid[y][x] == 0
+
+    def transition_cost(self, a, b):
+        if not self.is_free(a) or not self.is_free(b):
+            return inf
+        return 1.0
+
+    def calculate_key(self, node):
+        best = min(self.g[node], self.rhs[node])
+        return (best + self.heuristic(node, self.goal), best)
+
+    def remove_from_open(self, node):
+        if node in self.open_entries:
+            del self.open_entries[node]
+
+    def push_to_open(self, node):
+        key = self.calculate_key(node)
+        self.open_entries[node] = key
+        heapq.heappush(self.open_heap, (key[0], key[1], next(self.counter), node))
+
+    def top_key(self):
+        while self.open_heap:
+            k1, k2, _, node = self.open_heap[0]
+            current_key = self.open_entries.get(node)
+
+            if current_key is None or current_key != (k1, k2):
+                heapq.heappop(self.open_heap)
+                continue
+
+            return (k1, k2)
+
+        return (inf, inf)
+
+    def pop_smallest(self):
+        while self.open_heap:
+            k1, k2, _, node = heapq.heappop(self.open_heap)
+            current_key = self.open_entries.get(node)
+
+            if current_key is None or current_key != (k1, k2):
+                continue
+
+            del self.open_entries[node]
+            return node
+
+        return None
+
+    def reset(self, grid, start, goal):
         self.grid = [row[:] for row in grid]
+        self.height = len(grid)
+        self.width = len(grid[0]) if self.height > 0 else 0
         self.start = start
         self.goal = goal
-        self.g.clear()
-        self.rhs.clear()
-        self.open_heap.clear()
-        self.open_best_key.clear()
 
-        for r in range(len(self.grid)):
-            for c in range(len(self.grid[0])):
-                self.g[(r, c)] = math.inf
-                self.rhs[(r, c)] = math.inf
+        self.g = defaultdict(lambda: inf)
+        self.rhs = defaultdict(lambda: inf)
 
-        self.rhs[start] = 0.0
-        self._push_or_update(start)
+        self.open_heap = []
+        self.open_entries = {}
+        self.counter = count()
 
-    def update_grid(self, new_grid: Grid, changed_cells: List[Cell]) -> None:
-        if self.grid is None:
-            raise ValueError("Planner must be initialized before grid update.")
+        self.rhs[self.start] = 0.0
+        self.push_to_open(self.start)
 
+    def update_vertex(self, node):
+        if node != self.start:
+            if not self.is_free(node):
+                self.rhs[node] = inf
+            else:
+                best_rhs = inf
+                for pred in self.adjacent_cells(node):
+                    cost = self.transition_cost(pred, node)
+                    if cost < inf:
+                        best_rhs = min(best_rhs, self.g[pred] + cost)
+                self.rhs[node] = best_rhs
+
+        self.remove_from_open(node)
+
+        if self.g[node] != self.rhs[node]:
+            self.push_to_open(node)
+
+    def compute_shortest_path(self):
+        while (
+            self.top_key() < self.calculate_key(self.goal)
+            or self.rhs[self.goal] != self.g[self.goal]
+        ):
+            node = self.pop_smallest()
+            if node is None:
+                break
+
+            if self.g[node] > self.rhs[node]:
+                self.g[node] = self.rhs[node]
+                for succ in self.adjacent_cells(node):
+                    self.update_vertex(succ)
+            else:
+                self.g[node] = inf
+                self.update_vertex(node)
+                for succ in self.adjacent_cells(node):
+                    self.update_vertex(succ)
+
+    def detect_changed_cells(self, new_grid):
+        changed = []
+        for y in range(self.height):
+            for x in range(self.width):
+                if self.grid[y][x] != new_grid[y][x]:
+                    changed.append((x, y))
+        return changed
+
+    def apply_grid_changes(self, new_grid, changed_cells):
         self.grid = [row[:] for row in new_grid]
 
         affected = set()
         for cell in changed_cells:
             affected.add(cell)
-            for nb in self._all_neighbors(cell):
-                affected.add(nb)
+            for neighbor in self.adjacent_cells(cell):
+                affected.add(neighbor)
 
-        for cell in affected:
-            self._update_vertex(cell)
+        for node in affected:
+            self.update_vertex(node)
 
-    def replan(self) -> Dict:
-        if self.grid is None or self.start is None or self.goal is None:
-            raise ValueError("Planner must be initialized before replanning.")
-
-        t0 = time.perf_counter_ns()
-        self.expanded_last = self._compute_shortest_path()
-        path = self._extract_path()
-        elapsed_us = (time.perf_counter_ns() - t0) / 1000.0
-
-        return {
-            "path": path,
-            "path_length": max(0, len(path) - 1) if path else float("inf"),
-            "planning_time_us": elapsed_us,
-            "expanded": self.expanded_last,
-        }
-
-    def _compute_shortest_path(self) -> int:
-        expanded = 0
-        while self._top_key() < self._calculate_key(self.goal) or self.rhs[self.goal] != self.g[self.goal]:
-            k_old, u = self._pop_valid()
-            if u is None:
-                break
-
-            k_new = self._calculate_key(u)
-            if k_old < k_new:
-                self._push_with_key(u, k_new)
-                continue
-
-            expanded += 1
-            if self.g[u] > self.rhs[u]:
-                self.g[u] = self.rhs[u]
-                for s in self._successors(u):
-                    self._update_vertex(s)
-            else:
-                self.g[u] = math.inf
-                self._update_vertex(u)
-                for s in self._successors(u):
-                    self._update_vertex(s)
-        return expanded
-
-    def _extract_path(self) -> List[Cell]:
-        if self.grid is None or self.start is None or self.goal is None:
-            return []
-        if self.g[self.goal] == math.inf:
+    def extract_path(self):
+        if self.g[self.goal] == inf and self.rhs[self.goal] == inf:
             return []
 
         current = self.goal
-        path = [current]
-        guard = len(self.grid) * len(self.grid[0]) + 5
+        reverse_path = [current]
+        safety_limit = self.width * self.height + 5
 
-        while current != self.start and guard > 0:
-            guard -= 1
-            preds = self._predecessors(current)
-            if not preds:
+        while current != self.start and safety_limit > 0:
+            candidates = []
+
+            for pred in self.adjacent_cells(current):
+                cost = self.transition_cost(pred, current)
+                if cost < inf:
+                    candidates.append((self.g[pred] + cost, pred))
+
+            if not candidates:
                 return []
-            current = min(preds, key=lambda s: self.g[s] + self._cost(s, current))
-            if self.g[current] == math.inf:
+
+            best_cost, best_pred = min(
+                candidates,
+                key=lambda item: (item[0], item[1][1], item[1][0])
+            )
+
+            if best_cost == inf:
                 return []
-            path.append(current)
 
-        path.reverse()
-        return path
+            current = best_pred
+            reverse_path.append(current)
+            safety_limit -= 1
 
-    def _update_vertex(self, u: Cell) -> None:
-        if self.start is None:
-            return
-        if not self._is_free(u):
-            self.g[u] = math.inf
-            self.rhs[u] = math.inf
-            self.open_best_key.pop(u, None)
-            return
+        if current != self.start:
+            return []
 
-        if u != self.start:
-            preds = self._predecessors(u)
-            best = math.inf
-            for s in preds:
-                best = min(best, self.g[s] + self._cost(s, u))
-            self.rhs[u] = best
+        reverse_path.reverse()
+        return reverse_path
 
-        self.open_best_key.pop(u, None)
-        if self.g[u] != self.rhs[u]:
-            self._push_or_update(u)
+    def plan(self, grid, start, goal):
+        if not grid or not grid[0]:
+            return []
 
-    def _calculate_key(self, s: Cell) -> Tuple[float, float]:
-        base = min(self.g[s], self.rhs[s])
-        return (base + self._heuristic(s, self.goal), base)
+        needs_reset = (
+            self.grid is None
+            or self.start != start
+            or self.goal != goal
+            or len(grid) != self.height
+            or len(grid[0]) != self.width
+        )
 
-    def _push_or_update(self, s: Cell) -> None:
-        self._push_with_key(s, self._calculate_key(s))
+        if needs_reset:
+            self.reset(grid, start, goal)
+        else:
+            changed_cells = self.detect_changed_cells(grid)
+            if changed_cells:
+                self.apply_grid_changes(grid, changed_cells)
 
-    def _push_with_key(self, s: Cell, key: Tuple[float, float]) -> None:
-        self.open_best_key[s] = key
-        heapq.heappush(self.open_heap, (key[0], key[1], s))
-
-    def _top_key(self) -> Tuple[float, float]:
-        while self.open_heap:
-            k1, k2, s = self.open_heap[0]
-            if self.open_best_key.get(s) == (k1, k2):
-                return (k1, k2)
-            heapq.heappop(self.open_heap)
-        return (math.inf, math.inf)
-
-    def _pop_valid(self):
-        while self.open_heap:
-            k1, k2, s = heapq.heappop(self.open_heap)
-            if self.open_best_key.get(s) == (k1, k2):
-                self.open_best_key.pop(s, None)
-                return (k1, k2), s
-        return (math.inf, math.inf), None
-
-    def _all_neighbors(self, cell: Cell) -> List[Cell]:
-        r, c = cell
-        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
-        if self.allow_diagonal:
-            directions += [(-1, -1), (-1, 1), (1, -1), (1, 1)]
-        out = []
-        for dr, dc in directions:
-            nr, nc = r + dr, c + dc
-            if self.grid is not None and 0 <= nr < len(self.grid) and 0 <= nc < len(self.grid[0]):
-                out.append((nr, nc))
-        return out
-
-    def _successors(self, cell: Cell) -> List[Cell]:
-        return [n for n in self._all_neighbors(cell) if self._is_free(n)]
-
-    def _predecessors(self, cell: Cell) -> List[Cell]:
-        return [n for n in self._all_neighbors(cell) if self._is_free(n)]
-
-    def _cost(self, a: Cell, b: Cell) -> float:
-        return 1.0 if self._is_free(a) and self._is_free(b) else math.inf
-
-    def _heuristic(self, a: Cell, b: Cell) -> float:
-        ar, ac = a
-        br, bc = b
-        if self.allow_diagonal:
-            return max(abs(ar - br), abs(ac - bc))
-        return abs(ar - br) + abs(ac - bc)
-
-    def _is_free(self, cell: Cell) -> bool:
-        if self.grid is None:
-            return False
-        r, c = cell
-        return 0 <= r < len(self.grid) and 0 <= c < len(self.grid[0]) and self.grid[r][c] == 0
+        self.compute_shortest_path()
+        return self.extract_path()
