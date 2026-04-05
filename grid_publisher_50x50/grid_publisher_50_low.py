@@ -32,9 +32,11 @@ class GridPublisher50(Node):
         return data
 
     def make_layout_1(self):
+        # Low disturbance layout 1: lower opening
         return self.make_layout_with_gap(self.gap_bottom_y)
 
     def make_layout_2(self):
+        # Low disturbance layout 2: upper opening
         return self.make_layout_with_gap(self.gap_top_y)
 
     def publish_grid(self):
@@ -59,10 +61,10 @@ class GridPublisher50(Node):
 
         if self.layout_toggle:
             msg.data = self.make_layout_2()
-            self.get_logger().info('Published 50x50 layout 2')
+            self.get_logger().info('Published 50x50 low layout 2')
         else:
             msg.data = self.make_layout_1()
-            self.get_logger().info('Published 50x50 layout 1')
+            self.get_logger().info('Published 50x50 low layout 1')
 
         self.publisher_.publish(msg)
 

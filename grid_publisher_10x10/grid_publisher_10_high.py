@@ -8,6 +8,8 @@ class GridPublisher(Node):
     def __init__(self):
         super().__init__('grid_publisher')
         self.publisher_ = self.create_publisher(OccupancyGrid, '/map', 10)
+
+        # High disturbance: change every 1 second
         self.timer = self.create_timer(1.0, self.publish_grid)
 
         self.width = 10
@@ -15,29 +17,45 @@ class GridPublisher(Node):
         self.resolution = 1.0
 
         self.layout_toggle = False
-        self.publish_count = 0
+
+    def make_layout_with_gaps(self, gap_x3, gap_x5, gap_x7):
+        data = [0] * (self.width * self.height)
+
+        # Wall at x = 3
+        for y in range(self.height):
+            if y != gap_x3:
+                index = y * self.width + 3
+                data[index] = 100
+
+        # Wall at x = 5
+        for y in range(self.height):
+            if y != gap_x5:
+                index = y * self.width + 5
+                data[index] = 100
+
+        # Wall at x = 7
+        for y in range(self.height):
+            if y != gap_x7:
+                index = y * self.width + 7
+                data[index] = 100
+
+        return data
 
     def make_layout_1(self):
-        data = [0] * (self.width * self.height)
-
-        # wall at x = 4, gap at y = 7
-        for y in range(self.height):
-            if y != 7:
-                index = y * self.width + 4
-                data[index] = 100
-
-        return data
+        # Forces a top -> bottom -> top snake
+        return self.make_layout_with_gaps(
+            gap_x3=2,
+            gap_x5=7,
+            gap_x7=3
+        )
 
     def make_layout_2(self):
-        data = [0] * (self.width * self.height)
-
-        # same wall, but gap moves to y = 2
-        for y in range(self.height):
-            if y != 2:
-                index = y * self.width + 4
-                data[index] = 100
-
-        return data
+        # Forces a bottom -> top -> mid snake
+        return self.make_layout_with_gaps(
+            gap_x3=7,
+            gap_x5=2,
+            gap_x7=6
+        )
 
     def publish_grid(self):
         msg = OccupancyGrid()
@@ -55,16 +73,15 @@ class GridPublisher(Node):
         origin.orientation.w = 1.0
         msg.info.origin = origin
 
-        self.publish_count += 1
-        if self.publish_count % 5 == 0:
-            self.layout_toggle = not self.layout_toggle
+        # High disturbance: flip every publish (every 1 second)
+        self.layout_toggle = not self.layout_toggle
 
         if self.layout_toggle:
-            msg.data = self.make_layout_2()
-            self.get_logger().info('Published layout 2')
-        else:
             msg.data = self.make_layout_1()
-            self.get_logger().info('Published layout 1')
+            self.get_logger().info('Published 10x10 high layout 1')
+        else:
+            msg.data = self.make_layout_2()
+            self.get_logger().info('Published 10x10 high layout 2')
 
         self.publisher_.publish(msg)
 
