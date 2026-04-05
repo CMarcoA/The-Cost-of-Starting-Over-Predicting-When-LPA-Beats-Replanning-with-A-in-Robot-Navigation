@@ -1,6 +1,8 @@
 # Replanning in Robot Navigation: A* vs LPA*
 
-![Project Preview](misc/experiment-AI-preview.gif)
+<p align="center">
+  <img src="misc/experiment-AI-preview.gif" alt="Project Preview" width="700"/>
+</p>
 
 ## Overview
 This project explores a core AI question in robotics: **how should a robot adapt its path when the environment changes while it is moving?**  
@@ -28,7 +30,7 @@ Our results supported the main threshold idea:
 - **A\*** is a strong and simple choice when changes are limited
 - **LPA\*** becomes more valuable when replanning happens repeatedly, because it reuses previous search information instead of starting over every time
 
-This matches the central advantage of incremental replanning methods described in the literature. :contentReference
+This matches the central advantage of incremental replanning methods described in the papers
 
 ## Why This Matters
 This project helped us see robot navigation as more than pathfinding. In AI, navigation is also about **decision-making under change**. A modern example is a warehouse robot: if one aisle is suddenly blocked, the robot must quickly decide whether to rebuild its entire path or efficiently repair the one it already has.
@@ -39,9 +41,17 @@ The main takeaway from this project is that **replanning itself should be treate
 ## Future Plans
 The next step for this project is to test the replanning system in a more realistic robot simulation environment such as **Gazebo**. This would allow the project to move beyond grid-based experiments and closer to how path planning is used in real robotics. It is also something I want to explore further personally, since learning more about robot simulation and practical robotics systems is one of the main directions I would like to build on from this project !
 
-[![Full report here](misc/paper-AI-preview.gif)](misc/TheCostOfStartingOver-3190Project.pdf)
 
-Click to view full report
+<p align="center">
+  <a href="misc/TheCostOfStartingOver-3190Project.pdf">
+    <img src="misc/paper-AI-preview.gif" alt="Full Report Preview" width="700"/>
+  </a>
+</p>
+
+<p align="center">
+  <a href="misc/TheCostOfStartingOver-3190Project.pdf">📄 Click here to view the full report</a>
+</p>
+
 
 ## ----- Repository Files -----
 
